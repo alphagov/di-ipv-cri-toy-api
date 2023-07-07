@@ -4,4 +4,5 @@ export enum CommonConfigKey {
   SESSION_TTL = "SessionTtl",
   DECRYPTION_KEY_ID = "AuthRequestKmsEncryptionKeyId",
   VC_ISSUER = "verifiable-credential/issuer",
+  VC_KMS_SIGNING_KEY_ID = "verifiableCredentialKmsSigningKeyId",
 }
