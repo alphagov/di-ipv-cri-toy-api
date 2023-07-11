@@ -26,18 +26,24 @@ import { AuditService } from "../../common/services/audit-service";
 import { AuditEventType } from "../../types/audit-event";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { SessionItem } from "../../types/session-item";
-import getSessionByIdMiddleware from "../../middlewares/session/get-session-by-id-middleware";
 import { SessionService } from "../../services/session-service";
 import { getTimeUnitValue } from "../../common/utils/time-units";
+import getSessionByIdMiddleware from "../../middlewares/session/get-session-by-id-middleware";
+import { JwtSigner } from "../../jwt-signer/jwt-signer";
+import { KMSClient } from "@aws-sdk/client-kms";
 const TOY_CREDENTIAL_ISSUER = "toy_credential_issuer";
 const dynamoDbClient = createClient(AwsClientType.DYNAMO) as DynamoDBDocument;
 const ssmClient = createClient(AwsClientType.SSM) as SSMClient;
 const sqsClient = createClient(AwsClientType.SQS) as SQSClient;
+const kmsClient = createClient(AwsClientType.SQS) as KMSClient;
 const configService = new ConfigService(ssmClient);
 const sessionService = new SessionService(dynamoDbClient, configService);
 const auditService = new AuditService(
   () => configService.getConfigEntry(CommonConfigKey.VC_ISSUER),
   sqsClient
+);
+const jwtSigner = new JwtSigner(kmsClient, () =>
+  configService.getConfigEntry(CommonConfigKey.VC_KMS_SIGNING_KEY_ID)
 );
 const builder = new VerifiableCredentialBuilder(ssmClient);
 export class IssueCredentialLambda implements LambdaInterface {
@@ -95,9 +101,7 @@ export class IssueCredentialLambda implements LambdaInterface {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        ...vcClaimSet,
-      }),
+      body: await jwtSigner.createSignedJwt(vcClaimSet),
     };
   }
 }
@@ -122,6 +126,7 @@ export const lambdaHandler: Handler = middy(
       config_keys: [
         CommonConfigKey.SESSION_TABLE_NAME,
         CommonConfigKey.VC_ISSUER,
+        CommonConfigKey.VC_KMS_SIGNING_KEY_ID,
       ],
     })
   )

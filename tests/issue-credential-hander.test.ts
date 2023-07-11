@@ -24,6 +24,7 @@ import {
 } from "../lambdas/types/audit-event";
 import getSessionByIdMiddleware from "../lambdas/middlewares/session/get-session-by-id-middleware";
 import { SessionService } from "../lambdas/services/session-service";
+import { JwtSigner } from "../lambdas/jwt-signer/jwt-signer";
 jest.mock("@aws-sdk/client-ssm", () => ({
   __esModule: true,
   ...jest.requireActual("@aws-sdk/client-ssm"),
@@ -44,6 +45,7 @@ describe("issue-credential-handler.ts", () => {
   let configService: jest.MockedObjectDeep<typeof ConfigService>;
   let auditService: jest.MockedObjectDeep<typeof AuditService>;
   let sessionService: jest.MockedObjectDeep<typeof SessionService>;
+  let mockedJwtSigner: jest.MockedObjectDeep<typeof JwtSigner>;
   let lambdaHandler: middy.MiddyfiedHandler;
   let mockEvent: APIGatewayProxyEvent;
 
@@ -72,6 +74,8 @@ describe("issue-credential-handler.ts", () => {
     configService = jest.mocked(ConfigService);
     auditService = jest.mocked(AuditService);
     sessionService = jest.mocked(SessionService);
+    mockedJwtSigner = jest.mocked(JwtSigner);
+
     logger = jest.mocked(Logger);
     metrics = jest.mocked(Metrics);
 
@@ -124,7 +128,7 @@ describe("issue-credential-handler.ts", () => {
     jest
       .spyOn(auditService.prototype, "sendAuditEvent")
       .mockReturnValue(Promise.resolve(null));
-    jest.spyOn(sessionService.prototype, "getSession").mockReturnValue({});
+    jest.spyOn(sessionService.prototype, "getSession").mockReturnValueOnce({});
 
     const impl = () =>
       jest.fn().mockImplementation(() => Promise.resolve({ Parameters: [] }));
@@ -192,6 +196,10 @@ describe("issue-credential-handler.ts", () => {
       });
     });
     it("should return a statuscode of 200", async () => {
+      const mockJwt = "mocked.signedjwt.value";
+      jest
+        .spyOn(mockedJwtSigner.prototype, "createSignedJwt")
+        .mockResolvedValueOnce(mockJwt);
       const response = await lambdaHandler(mockEvent, {} as Context);
 
       expect(getParameterCommand).toBeCalledTimes(5);
@@ -199,7 +207,10 @@ describe("issue-credential-handler.ts", () => {
       expect(dynamoDbClient.prototype.query).toHaveBeenCalledTimes(1);
       expect(dynamoDbClient.prototype.send).toHaveBeenCalledTimes(1);
       expect(mockSSMClient.prototype.send).toHaveBeenCalledTimes(5);
-      expect(response.statusCode).toBe(200);
+      expect(response).toEqual({
+        statusCode: 200,
+        body: mockJwt,
+      });
     });
 
     it("should send audit events", async () => {
@@ -228,7 +239,6 @@ describe("issue-credential-handler.ts", () => {
       });
     });
   });
-
   describe("authorization absent, unable to issue veriable credential", () => {
     beforeEach(() => {
       mockEvent = {
